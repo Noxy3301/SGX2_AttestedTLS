@@ -31,6 +31,9 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
+#include <string>
+#include <iostream>
+
 #define TLS_SERVER_NAME "localhost"
 #define TLS_SERVER_PORT "12340"
 
@@ -164,33 +167,41 @@ void terminate_enclave()
     printf("Host: Enclave successfully terminated.\n");
 }
 
-int main(int argc, const char* argv[])
-{
+void handle_command() {
+    while (true) {
+        std::cout << "Host: Enter command to send to server: ";
+        std::string command;
+        std::getline(std::cin, command);
+
+        ecall_send_data(client_global_eid, command.c_str(), command.length());
+
+        if (command == "/exit") {
+            break;
+        }
+    }
+}
+
+int main(int argc, const char* argv[]) {
     sgx_status_t result = SGX_SUCCESS;
     int ret = 1;
     char* server_name = NULL;
     char* server_port = NULL;
 
     /* Check argument count */
-    if (argc != 4)
-    {
+    if (argc != 4) {
     print_usage:
-        printf(
-            "Usage: %s TLS_SERVER_ENCLAVE_PATH -server:<name> -port:<port>\n",
-            argv[0]);
+        printf("Usage: %s TLS_SERVER_ENCLAVE_PATH -server:<name> -port:<port>\n", argv[0]);
         return 1;
     }
+
     // read server name  parameter
     {
         const char* option = "-server:";
         int param_len = 0;
         param_len = strlen(option);
-        if (strncmp(argv[2], option, param_len) == 0)
-        {
+        if (strncmp(argv[2], option, param_len) == 0) {
             server_name = (char*)(argv[2] + param_len);
-        }
-        else
-        {
+        } else {
             fprintf(stderr, "Unknown option %s\n", argv[2]);
             goto print_usage;
         }
@@ -202,12 +213,9 @@ int main(int argc, const char* argv[])
         const char* option = "-port:";
         int param_len = 0;
         param_len = strlen(option);
-        if (strncmp(argv[3], option, param_len) == 0)
-        {
+        if (strncmp(argv[3], option, param_len) == 0) {
             server_port = (char*)(argv[3] + param_len);
-        }
-        else
-        {
+        } else {
             fprintf(stderr, "Unknown option %s\n", argv[2]);
             goto print_usage;
         }
@@ -216,21 +224,25 @@ int main(int argc, const char* argv[])
 
     printf("Host: Creating client enclave\n");
     result = initialize_enclave(argv[1]);
-    if (result != SGX_SUCCESS)
-    {
+    if (result != SGX_SUCCESS) {
         goto exit;
     }
 
     printf("Host: launch TLS client to initiate TLS connection\n");
     result = launch_tls_client(client_global_eid, &ret, server_name, server_port);
-    if (result != SGX_SUCCESS || ret != 0)
-    {
+    printf("Host: launch_tls_client returned %d\n", ret);
+    if (result != SGX_SUCCESS || ret != 0) {
         printf("Host: launch_tls_client failed\n");
         goto exit;
     }
+
+    handle_command();
+
+
     ret = 0;
 exit:
 
+    terminate_ssl_session(client_global_eid);
     terminate_enclave();
 
     printf("Host:  %s \n", (ret == 0) ? "succeeded" : "failed");

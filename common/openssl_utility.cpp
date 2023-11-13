@@ -312,3 +312,68 @@ int write_to_session_peer(
 exit:
     return ret;
 }
+
+// SSL/TLSでは、1度に読めるデータの最大長は2^14バイト(16KB)となっているらしい
+int tls_read_from_session_peer(SSL *&ssl_session, std::string &payload) {
+    // データサイズを受信
+    size_t data_size = 0;
+    int bytes_read = SSL_read(ssl_session, &data_size, sizeof(data_size));
+    if (bytes_read <= 0) {
+        int error = SSL_get_error(ssl_session, data_size);
+        PRINT("Failed to read data size, SSL_read returned error=%d\n", error);
+        return bytes_read;
+    }
+
+    // データを受信
+    payload.clear();
+    payload.reserve(data_size);
+    std::vector<char> buffer(data_size);
+
+    while (data_size > 0) {
+        bytes_read = SSL_read(ssl_session, buffer.data(), data_size);
+        if (bytes_read <= 0) {
+            int error = SSL_get_error(ssl_session, bytes_read);
+            if (error == SSL_ERROR_WANT_READ) {
+                continue;
+            }
+            PRINT("Failed to read payload, SSL_read returned %d\n", error);
+            return bytes_read;
+        }
+        payload.append(buffer.data(), bytes_read);  // SSL_read()はbufferを上書きするのでbytes_read分だけappendする
+        data_size -= bytes_read;
+    }
+
+    return 0;
+}
+
+
+int tls_write_to_session_peer(SSL *&ssl_session, const std::string &payload) {
+    // データサイズを送信
+    size_t data_size = payload.size();
+    int bytes_written = SSL_write(ssl_session, &data_size, sizeof(data_size));
+    if (bytes_written <= 0) {
+        int error = SSL_get_error(ssl_session, data_size);
+        PRINT("Failed to write data size, SSL_write returned error=%d\n", error);
+        return bytes_written;
+    }
+
+    // データを送信
+    const char *payload_ptr = payload.data();
+    size_t remaining = payload.size();
+
+    while (remaining > 0) {
+        bytes_written = SSL_write(ssl_session, payload_ptr, remaining);
+        if (bytes_written <= 0) {
+            int error = SSL_get_error(ssl_session, bytes_written);
+            if (error == SSL_ERROR_WANT_WRITE) {
+                continue;
+            }
+            PRINT("Failed to write payload, SSL_write returned %d\n", error);
+            return bytes_written;
+        }
+        payload_ptr += bytes_written;
+        remaining -= bytes_written;
+    }
+
+    return 0;
+}

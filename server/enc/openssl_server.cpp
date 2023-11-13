@@ -33,6 +33,9 @@
 #include <unistd.h>
 #include "../../common/openssl_utility.h"
 
+#include <vector>
+#include <string>
+
 extern "C"
 {
     int set_up_tls_server(char* server_port, bool keep_server_up);
@@ -84,85 +87,79 @@ exit:
     return ret;
 }
 
-int handle_communication_until_done(
-    int& server_socket_fd,
-    int& client_socket_fd,
-    SSL_CTX*& ssl_server_ctx,
-    SSL*& ssl_session,
-    bool keep_server_up)
-{
-    int ret = -1;
-    int  test_error = 1;
-
-    do {
-        struct sockaddr_in addr;
-        uint len = sizeof(addr);
-
-        // reset ssl_session and client_socket_fd to prepare for the new TLS
-        // connection
-        if (client_socket_fd > 0)
-        {
-            ocall_close(&ret, client_socket_fd);
-            if (ret != 0) {
-                t_print(TLS_SERVER "OCALL: error closing client socket before starting a new TLS session.\n");
-                break;
-            }
-        }
-        SSL_free(ssl_session);
-        t_print(TLS_SERVER " waiting for client connection\n");
-
-        client_socket_fd = accept(server_socket_fd, (struct sockaddr*)&addr, &len);
-
-        if (client_socket_fd < 0)
-        {
-            t_print(TLS_SERVER "Unable to accept the client request\n");
+void process_ssl_session(SSL* ssl_session) {
+    t_print("\n\n=====\n\n");
+    std::string received_data;
+    while (true) {
+        received_data.clear();
+        tls_read_from_session_peer(ssl_session, received_data);
+        if (received_data == "/exit") {
+            t_print(TLS_SERVER "Received exit command from client\n");
             break;
+        } else {
+            // 受け取ったデータを処理
+            t_print(TLS_SERVER "Received data from client: %s\n", received_data.c_str());
+            std::string processed_data = "[Processed] " + received_data;
+            // 処理結果をクライアントに送信
+            tls_write_to_session_peer(ssl_session, processed_data);
         }
+    }
 
-        // create a new SSL structure for a connection
-        if ((ssl_session = SSL_new(ssl_server_ctx)) == nullptr)
-        {
-            t_print(TLS_SERVER
-                   "Unable to create a new SSL connection state object\n");
-            break;
-        }
-
-        SSL_set_fd(ssl_session, client_socket_fd);
-
-        // wait for a TLS/SSL client to initiate a TLS/SSL handshake
-
-        t_print(TLS_SERVER "initiating a passive connect SSL_accept\n");
-        test_error = SSL_accept(ssl_session);
-        if (test_error <= 0)
-        {
-            t_print(TLS_SERVER " SSL handshake failed, error(%d)(%d)\n",
-                        test_error, SSL_get_error(ssl_session, test_error));
-            break;
-        }
-
-        t_print(TLS_SERVER "<---- Read from client:\n");
-        if (read_from_session_peer(
-                ssl_session, CLIENT_PAYLOAD, CLIENT_PAYLOAD_SIZE) != 0)
-        {
-            t_print(TLS_SERVER " Read from client failed\n");
-            break;
-        }
-
-        t_print(TLS_SERVER "<---- Write to client:\n");
-        if (write_to_session_peer(
-                ssl_session, SERVER_PAYLOAD, strlen(SERVER_PAYLOAD)) != 0)
-        {
-            t_print(TLS_SERVER " Write to client failed\n");
-            break;
-        }
-        ret = 0;
-    } while (keep_server_up);
-
-    return ret;
+    // セッションの終了処理
+    SSL_shutdown(ssl_session);
+    SSL_free(ssl_session);
 }
 
-int set_up_tls_server(char* server_port, bool keep_server_up)
-{
+SSL *accept_client_connection(int server_socket_fd, SSL_CTX* ssl_server_ctx) {
+    int ret = -1; // dummy variable for ocall_close()
+    struct sockaddr_in addr;
+    uint len = sizeof(addr);
+
+    t_print(TLS_SERVER "waiting for client connection\n");
+    int client_socket_fd = accept(server_socket_fd, (struct sockaddr*)&addr, &len);
+    if (client_socket_fd < 0) {
+        t_print(TLS_SERVER "Unable to accept the client request\n");
+        return nullptr;
+    }
+
+    // create a new SSL structure for a connection
+    SSL* ssl_session = SSL_new(ssl_server_ctx);
+    if (ssl_session == nullptr) {
+        t_print(TLS_SERVER "Unable to create a new SSL connection state object\n");
+        ocall_close(&ret, client_socket_fd);
+        return nullptr;
+    }
+
+    SSL_set_fd(ssl_session, client_socket_fd);
+
+    // wait for a TLS/SSL client to initiate a TLS/SSL handshake
+    int test_error = SSL_accept(ssl_session);
+    if (test_error <= 0) {
+        t_print(TLS_SERVER "SSL handshake failed, error(%d)(%d)\n",
+                test_error, SSL_get_error(ssl_session, test_error));
+        SSL_free(ssl_session);
+        ocall_close(&ret, client_socket_fd);
+        return nullptr;
+    }
+
+    return ssl_session;
+}
+
+int handle_communication_until_done(int &server_socket_fd, SSL_CTX *&ssl_server_ctx, bool keep_server_up) {
+    while (keep_server_up) {
+        SSL *ssl_session = accept_client_connection(server_socket_fd, ssl_server_ctx);
+        if (ssl_session == nullptr) {
+            t_print(TLS_SERVER "Error: accept_client_connection() failed\n");
+            return -1;
+        } else {
+            process_ssl_session(ssl_session);
+        }
+    }
+    return 0;
+}
+
+int set_up_tls_server(char* server_port, bool keep_server_up) {
+    // SSLコンテキストの設定と、リスナーソケットの作成を行う
     int ret = 0;
     int server_socket_fd;
     int client_socket_fd = -1;
@@ -174,59 +171,40 @@ int set_up_tls_server(char* server_port, bool keep_server_up)
 
     SSL_CTX* ssl_server_ctx = nullptr;
     SSL* ssl_session = nullptr;
-    if ((ssl_server_ctx = SSL_CTX_new(TLS_server_method())) == nullptr)
-    {
+
+    if ((ssl_server_ctx = SSL_CTX_new(TLS_server_method())) == nullptr) {
         t_print(TLS_SERVER "unable to create a new SSL context\n");
         goto exit;
     }
 
-    if (initalize_ssl_context(ssl_confctx, ssl_server_ctx) != SGX_SUCCESS)
-    {
+    if (initalize_ssl_context(ssl_confctx, ssl_server_ctx) != SGX_SUCCESS) {
         t_print(TLS_SERVER "unable to create a initialize SSL context\n ");
         goto exit;
     }
     SSL_CTX_set_verify(ssl_server_ctx, SSL_VERIFY_PEER, &verify_callback);
     
-    if (load_tls_certificates_and_keys(ssl_server_ctx, certificate, pkey) != 0)
-    {
+    if (load_tls_certificates_and_keys(ssl_server_ctx, certificate, pkey) != 0) {
         t_print(TLS_SERVER
                " unable to load certificate and private key on the server\n ");
         goto exit;
     }
     
     server_port_number = (unsigned int)atoi(server_port); // convert to char* to int
-    if (create_listener_socket(server_port_number, server_socket_fd) != 0)
-    {
+    if (create_listener_socket(server_port_number, server_socket_fd) != 0) {
         t_print(TLS_SERVER " unable to create listener socket on the server\n ");
         goto exit;
     }
 
-    // handle communication
-    ret = handle_communication_until_done(
-        server_socket_fd,
-        client_socket_fd,
-        ssl_server_ctx,
-        ssl_session,
-        keep_server_up);
-    if (ret != 0)
-    {
+    ret = handle_communication_until_done(server_socket_fd, ssl_server_ctx, keep_server_up);
+    if (ret != 0) {
         t_print(TLS_SERVER "server communication error %d\n", ret);
         goto exit;
     }
 
 exit:
-    ocall_close(&ret, client_socket_fd); // close the socket connections
-    if (ret != 0)
-        t_print(TLS_SERVER "OCALL: error closing client socket\n");
-    ocall_close(&ret, server_socket_fd);
-    if (ret != 0)
-        t_print(TLS_SERVER "OCALL: error closing server socket\n");
+    ocall_close(&ret, server_socket_fd); // close the server socket connections
+    if (ret != 0) t_print(TLS_SERVER "OCALL: error closing server socket\n");
 
-    if (ssl_session)
-    {
-        SSL_shutdown(ssl_session);
-        SSL_free(ssl_session);
-    }
     if (ssl_server_ctx)
         SSL_CTX_free(ssl_server_ctx);
     if (ssl_confctx)
@@ -235,5 +213,6 @@ exit:
         X509_free(certificate);
     if (pkey)
         EVP_PKEY_free(pkey);
+
     return (ret);
 }

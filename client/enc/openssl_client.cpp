@@ -40,99 +40,53 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+#include <vector>
+#include <string>
+
 
 int verify_callback(int preverify_ok, X509_STORE_CTX* ctx);
 
-extern "C"
-{
+extern "C" {
     int launch_tls_client(char* server_name, char* server_port);
 };
 
 
-unsigned long inet_addr2(const char *str)
-{
+unsigned long inet_addr2(const char *str) {
     unsigned long lHost = 0;
     char *pLong = (char *)&lHost;
     char *p = (char *)str;
-    while (p)
-    {
+    while (p) {
         *pLong++ = atoi(p);
         p = strchr(p, '.');
-        if (p)
-            ++p;
+        if (p) ++p;
     }
     return lHost;
 }
+
 // This routine conducts a simple HTTP request/response communication with
 // server
-int communicate_with_server(SSL* ssl)
-{
-    unsigned char buf[200];
+int communicate_with_server(SSL* ssl) {
     int ret = 1;
-    int error = 0;
-    int len = 0;
-    int bytes_written = 0;
-    int bytes_read = 0;
 
-    // Write an GET request to the server
-    t_print(TLS_CLIENT "-----> Write to server:\n");
-    len = snprintf((char*)buf, sizeof(buf) - 1, CLIENT_PAYLOAD);
-    while ((bytes_written = SSL_write(ssl, buf, (size_t)len)) <= 0)
-    {
-        error = SSL_get_error(ssl, bytes_written);
-        if (error == SSL_ERROR_WANT_WRITE)
-            continue;
-        t_print(TLS_CLIENT "Failed! SSL_write returned %d\n", error);
-        if (bytes_written == 0) ret = -1;
-        else ret = bytes_written;
-        goto done;
-    }
+    t_print("\n\n=====\n\n");
 
-    t_print(TLS_CLIENT "%d bytes written\n", bytes_written);
 
-    // Read the HTTP response from server
-    t_print(TLS_CLIENT "<---- Read from server:\n");
-    do
-    {
-        len = sizeof(buf) - 1;
-        memset(buf, 0, sizeof(buf));
-        bytes_read = SSL_read(ssl, buf, (size_t)len);
-        if (bytes_read <= 0)
-        {
-            int error = SSL_get_error(ssl, bytes_read);
-            if (error == SSL_ERROR_WANT_READ)
-                continue;
+    // JSONデータをstd::stringに格納
+    std::string json_data = R"({"key": "value"})";
 
-            t_print(TLS_CLIENT "Failed! SSL_read returned error=%d\n", error);
-            if (bytes_read == 0) ret = -1;
-            else ret = bytes_read;
-            break;
-        }
+    // サーバーにJSONデータを送信
+    tls_write_to_session_peer(ssl, json_data);
 
-        t_print(TLS_CLIENT " %d bytes read\n", bytes_read);
-        // check to to see if received payload is expected
-        // Note that if you just want to use client here but server from other 
-        // applications, you need to ignore this check, SERVER_PAYLOAD_SIZE 
-        // need to be adjusted. 
-        if ((bytes_read != SERVER_PAYLOAD_SIZE) ||
-            (memcmp(SERVER_PAYLOAD, buf, bytes_read) != 0))
-        {
-            t_print(
-                TLS_CLIENT "ERROR: expected reading %lu bytes but only "
-                           "received %d bytes\n",
-                SERVER_PAYLOAD_SIZE,
-                bytes_read);
-            ret = bytes_read;
-            break;
-        }
-        else
-        {
-            t_print(TLS_CLIENT
-                   " received all the expected data from server\n\n");
-            ret = 0;
-            break;
-        }
-    } while (1);
+    // サーバーからの応答を受け取る
+    std::string response;
+    tls_read_from_session_peer(ssl, response);
+
+    // 応答を処理（ダミー）
+    t_print(TLS_CLIENT "Response from server: %s\n", response.c_str());
+
+    t_print("\n\n=====\n\n");
+    ret = 0;
+
 done:
     return ret;
 }
@@ -145,8 +99,7 @@ int create_socket(char* server_name, char* server_port)
     int res = -1;
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1)
-    {
+    if (sockfd == -1) {
         t_print(TLS_CLIENT "Error: Cannot create socket %d.\n", errno);
         goto done;
     }
@@ -156,18 +109,11 @@ int create_socket(char* server_name, char* server_port)
     dest_sock.sin_addr.s_addr = inet_addr2(server_name);
     bzero(&(dest_sock.sin_zero), sizeof(dest_sock.sin_zero));
     
-    if (connect(
-                sockfd, (sockaddr*) &dest_sock,
-                sizeof(struct sockaddr)) == -1)
-    {
-        t_print(
-            TLS_CLIENT "failed to connect to %s:%s (errno=%d)\n",
-            server_port,
-            server_port,
-            errno);
+    if (connect(sockfd, (sockaddr*) &dest_sock, sizeof(struct sockaddr)) == -1) {
+        t_print(TLS_CLIENT "failed to connect to %s:%s (errno=%d)\n",
+                server_port, server_port, errno);
         ocall_close(&res, sockfd);
-        if (res != 0)
-            t_print(TLS_CLIENT "OCALL: error closing socket\n");
+        if (res != 0) t_print(TLS_CLIENT "OCALL: error closing socket\n");
         sockfd = -1;
         goto done;
     }
@@ -177,32 +123,33 @@ done:
     return sockfd;
 }
 
-int launch_tls_client(char* server_name, char* server_port)
-{
-    t_print(TLS_CLIENT " called launch tls client\n");
 
-    int ret = 0;
+SSL* ssl_session = nullptr;
+int client_socket = -1;
 
+int launch_tls_client(char* server_name, char* server_port) {
+    t_print(TLS_CLIENT "called launch tls client\n");
+
+    int ret = -1;
+    int error = 0;
     SSL_CTX* ssl_client_ctx = nullptr;
-    SSL* ssl_session = nullptr;
-
+    
     X509* cert = nullptr;
     EVP_PKEY* pkey = nullptr;
     SSL_CONF_CTX* ssl_confctx = SSL_CONF_CTX_new();
 
-    int client_socket = -1;
-    int error = 0;
+    ssl_session = nullptr;
+    client_socket = -1;
 
     t_print("\nStarting" TLS_CLIENT "\n\n\n");
 
-    if ((ssl_client_ctx = SSL_CTX_new(TLS_client_method())) == nullptr)
-    {
+    // create and initialize the SSL_CTX structure
+    if ((ssl_client_ctx = SSL_CTX_new(TLS_client_method())) == nullptr) {
         t_print(TLS_CLIENT "unable to create a new SSL context\n");
         goto done;
     }
 
-    if (initalize_ssl_context(ssl_confctx, ssl_client_ctx) != SGX_SUCCESS)
-    {
+    if (initalize_ssl_context(ssl_confctx, ssl_client_ctx) != SGX_SUCCESS) {
         t_print(TLS_CLIENT "unable to create a initialize SSL context\n ");
         goto done;
     }
@@ -210,86 +157,105 @@ int launch_tls_client(char* server_name, char* server_port)
     // specify the verify_callback for custom verification
     SSL_CTX_set_verify(ssl_client_ctx, SSL_VERIFY_PEER, &verify_callback);
     t_print(TLS_CLIENT "load cert and key\n");
-    if (load_tls_certificates_and_keys(ssl_client_ctx, cert, pkey) != 0)
-    {
-        t_print(TLS_CLIENT
-               " unable to load certificate and private key on the client\n");
+    if (load_tls_certificates_and_keys(ssl_client_ctx, cert, pkey) != 0) {
+        t_print(TLS_CLIENT " unable to load certificate and private key on the client\n");
         goto done;
     }
 
-    if ((ssl_session = SSL_new(ssl_client_ctx)) == nullptr)
-    {
-        t_print(TLS_CLIENT
-               "Unable to create a new SSL connection state object\n");
+    if ((ssl_session = SSL_new(ssl_client_ctx)) == nullptr) {
+        t_print(TLS_CLIENT "Unable to create a new SSL connection state object\n");
         goto done;
     }
 
+    // create a socket and initiate a TCP connect to server
     t_print(TLS_CLIENT "new ssl connection getting created\n");
     client_socket = create_socket(server_name, server_port);
-    if (client_socket == -1)
-    {
-        t_print(
-            TLS_CLIENT
-            "create a socket and initiate a TCP connect to server: %s:%s "
-            "(errno=%d)\n",
-            server_name,
-            server_port,
-            errno);
+    if (client_socket == -1) {
+        t_print(TLS_CLIENT "create a socket and initiate a TCP connect to server: %s:%s "
+                "(errno=%d)\n", server_name, server_port, errno);
         goto done;
     }
 
     // set up ssl socket and initiate TLS connection with TLS server
     SSL_set_fd(ssl_session, client_socket);
 
-    if ((error = SSL_connect(ssl_session)) != 1)
-    {
-        t_print(
-            TLS_CLIENT "Error: Could not establish a TLS session ret2=%d "
-                       "SSL_get_error()=%d\n",
-            error,
-            SSL_get_error(ssl_session, error));
+    if ((error = SSL_connect(ssl_session)) != 1) {
+        t_print(TLS_CLIENT "Error: Could not establish a TLS session ret2=%d "
+                "SSL_get_error()=%d\n", error, SSL_get_error(ssl_session, error));
         goto done;
     }
-    t_print(
-        TLS_CLIENT "successfully established TLS channel:%s\n",
-        SSL_get_version(ssl_session));
+    t_print(TLS_CLIENT "successfully established TLS channel:%s\n", SSL_get_version(ssl_session));
+    ret = 0;    // success
 
-    // start the client server communication
-    if ((error = communicate_with_server(ssl_session)) != 0)
-    {
-        t_print(TLS_CLIENT "Failed: communicate_with_server (ret=%d)\n", error);
-        goto done;
-    }
-
-    // Free the structures we don't need anymore
-    ret = 0;
 done:
-
-    if (client_socket != -1) 
-    {
-        ocall_close(&ret, client_socket);
-        if (ret != 0)
-            t_print(TLS_CLIENT "OCALL: error close socket\n");
-    }
-
-    if (ssl_session)
-    {
-        SSL_shutdown(ssl_session);
-        SSL_free(ssl_session);
-    }
-
+    // Free the structures we don't need anymore
     if (cert)
         X509_free(cert);
-
     if (pkey)
         EVP_PKEY_free(pkey);
-
     if (ssl_client_ctx)
         SSL_CTX_free(ssl_client_ctx);
-
     if (ssl_confctx)
         SSL_CONF_CTX_free(ssl_confctx);
 
     t_print(TLS_CLIENT " %s\n", (ret == 0) ? "success" : "failed");
-    return (ret);
+    return ret;
 }
+
+void ecall_send_data(const char *data, size_t data_size) {
+    std::string data_str(reinterpret_cast<const char*>(data), data_size);
+    t_print(TLS_CLIENT "called ecall_send_data: %s\n", data_str.c_str());
+    tls_write_to_session_peer(ssl_session, data_str);
+
+    // ここで受け取るのは適切じゃないけどテストということで
+    std::string response;
+    tls_read_from_session_peer(ssl_session, response);
+    t_print(TLS_CLIENT "Response from server: %s\n", response.c_str());
+}
+
+void terminate_ssl_session() {
+    t_print(TLS_CLIENT "called terminate_ssl_session\n");
+    // cleanup global variables
+    int ret = 0;
+    if (client_socket != -1) {
+        ocall_close(&ret, client_socket);
+        if (ret != 0) t_print(TLS_CLIENT "OCALL: error close socket\n");
+    }
+
+    if (ssl_session) {
+        SSL_shutdown(ssl_session);
+        SSL_free(ssl_session);
+    }
+}
+
+	// // 4. seal wallet
+	// size_t sealed_size = sizeof(sgx_sealed_data_t) + sizeof(wallet_t);
+	// uint8_t* sealed_data = (uint8_t*)malloc(sealed_size);
+    // sealing_status = seal_wallet(wallet, (sgx_sealed_data_t*)sealed_data, sealed_size);
+    // free(wallet);
+    // if (sealing_status != SGX_SUCCESS) {
+	// 	free(sealed_data);
+	// 	return ERR_FAIL_SEAL;
+    // }
+    
+
+	// // 5. save wallet
+	// ocall_status = ocall_save_wallet(&ocall_ret, sealed_data, sealed_size);
+
+    // cleanup except ssl_session and client_socket
+
+    // // test
+    // X509_free(cert);
+    // EVP_PKEY_free(pkey);
+    // SSL_CTX_free(ssl_client_ctx);
+    // SSL_CONF_CTX_free(ssl_confctx);
+
+    // // start the client server communication
+    // error = communicate_with_server(ssl_session);
+    // if (error != 0) {
+    //     t_print(TLS_CLIENT "Failed: communicate_with_server (ret=%d)\n", error);
+    //     goto done;
+    // }
+    // t_print(TLS_CLIENT "ret=%d, error=%d\n", ret, error);
+    // // Free the structures we don't need anymore
+    // ret = 0;

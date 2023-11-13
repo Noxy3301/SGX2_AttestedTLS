@@ -29,6 +29,9 @@
 #include <openssl/err.h>
 #include "utility.h"
 
+#include <string>
+#include <vector>
+
 int read_from_session_peer(
     SSL*& ssl_session,
     const char* payload,
@@ -37,6 +40,9 @@ int write_to_session_peer(
     SSL*& ssl_session,
     const char* payload,
     size_t payload_length);
+
+int tls_read_from_session_peer(SSL *&ssl_session, std::string &payload);
+int tls_write_to_session_peer(SSL *&ssl_session, const std::string &payload);
 
 sgx_status_t load_tls_certificates_and_keys(
     SSL_CTX* ctx,
