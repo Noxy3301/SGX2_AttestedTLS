@@ -49,17 +49,10 @@ $(SGXSSL_HEADER_CHECK) : PREPARE_SGX_SSL
 build: $(SGXSSL_HEADER_CHECK)
 	$(MAKE) -C server
 	$(MAKE) -C client
-	$(MAKE) -C non_enc_client
-
-tdx:
-	$(MAKE) -C server_tdx
-	$(MAKE) -C non_enc_client
 
 clean:
 	$(MAKE) -C server clean
 	$(MAKE) -C client clean
-	$(MAKE) -C non_enc_client clean
-	$(MAKE) -C server_tdx clean
 
 run:
 	echo "Launch processes to establish an Attested TLS between two enclaves"
