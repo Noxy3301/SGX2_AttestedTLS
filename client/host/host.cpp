@@ -40,7 +40,6 @@
 /* Global EID shared by multiple threads */
 sgx_enclave_id_t client_global_eid = 0;
 
-
 typedef struct _sgx_errlist_t {
     sgx_status_t err;
     const char *msg;
@@ -49,86 +48,25 @@ typedef struct _sgx_errlist_t {
 
 /* Error code returned by sgx_create_enclave */
 static sgx_errlist_t sgx_errlist[] = {
-    {
-        SGX_ERROR_UNEXPECTED,
-        "Unexpected error occurred.",
-        NULL
-    },
-    {
-        SGX_ERROR_INVALID_PARAMETER,
-        "Invalid parameter.",
-        NULL
-    },
-    {
-        SGX_ERROR_OUT_OF_MEMORY,
-        "Out of memory.",
-        NULL
-    },
-    {
-        SGX_ERROR_ENCLAVE_LOST,
-        "Power transition occurred.",
-        "Please refer to the sample \"PowerTransition\" for details."
-    },
-    {
-        SGX_ERROR_INVALID_ENCLAVE,
-        "Invalid enclave image.",
-        NULL
-    },
-    {
-        SGX_ERROR_INVALID_ENCLAVE_ID,
-        "Invalid enclave identification.",
-        NULL
-    },
-    {
-        SGX_ERROR_INVALID_SIGNATURE,
-        "Invalid enclave signature.",
-        NULL
-    },
-    {
-        SGX_ERROR_OUT_OF_EPC,
-        "Out of EPC memory.",
-        NULL
-    },
-    {
-        SGX_ERROR_NO_DEVICE,
-        "Invalid SGX device.",
-        "Please make sure SGX module is enabled in the BIOS, and install SGX driver afterwards."
-    },
-    {
-        SGX_ERROR_MEMORY_MAP_CONFLICT,
-        "Memory map conflicted.",
-        NULL
-    },
-    {
-        SGX_ERROR_INVALID_METADATA,
-        "Invalid enclave metadata.",
-        NULL
-    },
-    {
-        SGX_ERROR_DEVICE_BUSY,
-        "SGX device was busy.",
-        NULL
-    },
-    {
-        SGX_ERROR_INVALID_VERSION,
-        "Enclave version was invalid.",
-        NULL
-    },
-    {
-        SGX_ERROR_INVALID_ATTRIBUTE,
-        "Enclave was not authorized.",
-        NULL
-    },
-    {
-        SGX_ERROR_ENCLAVE_FILE_ACCESS,
-        "Can't open enclave file.",
-        NULL
-    },
+    {SGX_ERROR_UNEXPECTED, "Unexpected error occurred.", NULL},
+    {SGX_ERROR_INVALID_PARAMETER, "Invalid parameter.", NULL},
+    {SGX_ERROR_OUT_OF_MEMORY, "Out of memory.", NULL},
+    {SGX_ERROR_ENCLAVE_LOST, "Power transition occurred.", "Please refer to the sample \"PowerTransition\" for details."},
+    {SGX_ERROR_INVALID_ENCLAVE, "Invalid enclave image.", NULL},
+    {SGX_ERROR_INVALID_ENCLAVE_ID, "Invalid enclave identification.", NULL},
+    {SGX_ERROR_INVALID_SIGNATURE, "Invalid enclave signature.", NULL},
+    {SGX_ERROR_OUT_OF_EPC, "Out of EPC memory.", NULL},
+    {SGX_ERROR_NO_DEVICE, "Invalid SGX device.", "Please make sure SGX module is enabled in the BIOS, and install SGX driver afterwards."},
+    {SGX_ERROR_MEMORY_MAP_CONFLICT, "Memory map conflicted.", NULL},
+    {SGX_ERROR_INVALID_METADATA, "Invalid enclave metadata.", NULL},
+    {SGX_ERROR_DEVICE_BUSY, "SGX device was busy.", NULL},
+    {SGX_ERROR_INVALID_VERSION, "Enclave version was invalid.", NULL},
+    {SGX_ERROR_INVALID_ATTRIBUTE, "Enclave was not authorized.", NULL},
+    {SGX_ERROR_ENCLAVE_FILE_ACCESS, "Can't open enclave file.", NULL},
 };
 
 /* Check error conditions for loading enclave */
-void print_error_message(sgx_status_t ret)
-{
+void print_error_message(sgx_status_t ret) {
     size_t idx = 0;
     size_t ttl = sizeof sgx_errlist/sizeof sgx_errlist[0];
 
@@ -145,26 +83,23 @@ void print_error_message(sgx_status_t ret)
         printf("Error code is 0x%X. Please refer to the \"Intel SGX SDK Developer Reference\" for more details.\n", ret);
 }
 
-sgx_status_t initialize_enclave(const char *enclave_path)
-{
+sgx_status_t initialize_enclave(const char *enclave_path) {
     sgx_status_t ret = SGX_ERROR_UNEXPECTED;
 
     // the 1st parameter should be CLIENT_ENCLAVE_FILENAME
     ret = sgx_create_enclave(enclave_path, SGX_DEBUG_FLAG, NULL, NULL, &client_global_eid, NULL);
-    printf("Client Enc: Enclave library %s\n", enclave_path);
+    printf("- [Host] Enclave library: %s\n", enclave_path);
 
-    if (ret != SGX_SUCCESS)
-    {
+    if (ret != SGX_SUCCESS) {
         print_error_message(ret);
         return ret;
     }
     return ret;
 }
 
-void terminate_enclave()
-{
+void terminate_enclave() {
     sgx_destroy_enclave(client_global_eid);
-    printf("Host: Enclave successfully terminated.\n");
+    printf(" -[Host] Enclave successfully terminated.\n");
 }
 
 void handle_command() {
@@ -178,6 +113,7 @@ void handle_command() {
         if (command == "/exit") {
             break;
         }
+        std::cout << "\n";
     }
 }
 
@@ -194,6 +130,7 @@ int main(int argc, const char* argv[]) {
         return 1;
     }
 
+    printf("\n[Starting TLS client]\n");
     // read server name  parameter
     {
         const char* option = "-server:";
@@ -206,7 +143,7 @@ int main(int argc, const char* argv[]) {
             goto print_usage;
         }
     }
-    printf("server name = [%s]\n", server_name);
+    printf("- [Host] Server Name: %s\n", server_name);
 
     // read port parameter
     {
@@ -220,31 +157,43 @@ int main(int argc, const char* argv[]) {
             goto print_usage;
         }
     }
-    printf("server port = [%s]\n", server_port);
+    printf("- [Host] Server Port: %s\n", server_port);
 
-    printf("Host: Creating client enclave\n");
+    // create client enclave
+    printf("\n[Creating TLS client enclave]\n");
     result = initialize_enclave(argv[1]);
     if (result != SGX_SUCCESS) {
+        printf("- [Host] Status: Failed\n");
         goto exit;
+    } else {
+        printf("- [Host] Status: Success\n");
     }
 
-    printf("Host: launch TLS client to initiate TLS connection\n");
+    // launch TLS client
+    printf("\n[Launching TLS client enclave]\n");
     result = launch_tls_client(client_global_eid, &ret, server_name, server_port);
-    printf("Host: launch_tls_client returned %d\n", ret);
     if (result != SGX_SUCCESS || ret != 0) {
-        printf("Host: launch_tls_client failed\n");
+        printf("- [Host] TLS Channel: Failed to establish\n");
         goto exit;
+    } else {
+        printf("- [Host] TLS Channel: Successfully established\n");
     }
 
+    printf("\n[Client-Server Communication]\n");
     handle_command();
 
 
     ret = 0;
 exit:
-
-    terminate_ssl_session(client_global_eid);
+    printf("\n[Terminating TLS Session]\n");
+    result = terminate_ssl_session(client_global_eid);
+    if (result != SGX_SUCCESS) {
+        printf("- [Host] TLS Session: Failed to terminate\n");
+    } else {
+        printf("- [Host] TLS Session: Successfully terminated\n");
+    }
     terminate_enclave();
 
-    printf("Host:  %s \n", (ret == 0) ? "succeeded" : "failed");
+    printf("- [Host] %s \n", (ret == 0) ? "succeeded" : "failed");
     return ret;
 }

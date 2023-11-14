@@ -88,7 +88,7 @@ exit:
 }
 
 void process_ssl_session(SSL* ssl_session) {
-    t_print("\n\n=====\n\n");
+    t_print("\n[Processing TLS Session]\n");
     std::string received_data;
     while (true) {
         received_data.clear();
@@ -115,7 +115,7 @@ SSL *accept_client_connection(int server_socket_fd, SSL_CTX* ssl_server_ctx) {
     struct sockaddr_in addr;
     uint len = sizeof(addr);
 
-    t_print(TLS_SERVER "waiting for client connection\n");
+    t_print(TLS_SERVER "waiting for client connection ...\n");
     int client_socket_fd = accept(server_socket_fd, (struct sockaddr*)&addr, &len);
     if (client_socket_fd < 0) {
         t_print(TLS_SERVER "Unable to accept the client request\n");
@@ -153,6 +153,7 @@ int handle_communication_until_done(int &server_socket_fd, SSL_CTX *&ssl_server_
             return -1;
         } else {
             process_ssl_session(ssl_session);
+            t_print(TLS_SERVER "TLS session closed\n");
         }
     }
     return 0;
@@ -181,11 +182,11 @@ int set_up_tls_server(char* server_port, bool keep_server_up) {
         t_print(TLS_SERVER "unable to create a initialize SSL context\n ");
         goto exit;
     }
+
     SSL_CTX_set_verify(ssl_server_ctx, SSL_VERIFY_PEER, &verify_callback);
-    
+    t_print(TLS_SERVER "Load TLS certificate and key\n");
     if (load_tls_certificates_and_keys(ssl_server_ctx, certificate, pkey) != 0) {
-        t_print(TLS_SERVER
-               " unable to load certificate and private key on the server\n ");
+        t_print(TLS_SERVER " unable to load certificate and private key on the server\n ");
         goto exit;
     }
     
@@ -195,6 +196,7 @@ int set_up_tls_server(char* server_port, bool keep_server_up) {
         goto exit;
     }
 
+    t_print("\n[Establishing TLS Connection]\n");
     ret = handle_communication_until_done(server_socket_fd, ssl_server_ctx, keep_server_up);
     if (ret != 0) {
         t_print(TLS_SERVER "server communication error %d\n", ret);

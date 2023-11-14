@@ -43,8 +43,7 @@
 #include "sgx_trts.h"
 
 
-int get_pkey_by_rsa(EVP_PKEY *pk)
-{
+int get_pkey_by_rsa(EVP_PKEY *pk) {
     int res = -1;
     EVP_PKEY_CTX *ctx = NULL;
 
@@ -52,23 +51,20 @@ int get_pkey_by_rsa(EVP_PKEY *pk)
     if (ctx == NULL)
         return res;
     res = EVP_PKEY_keygen_init(ctx);
-    if (res <= 0)
-    {
+    if (res <= 0) {
         PRINT("keygen_init failed (%d)\n", res);
         goto done;
     }
 
     res = EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, RSA_3072_PRIVATE_KEY_SIZE);
-    if (res <= 0)
-    {
+    if (res <= 0) {
         PRINT("set_rsa_kengen_bits failed (%d)\n", res);
         goto done;
     }
 
     /* Generate key */
     res = EVP_PKEY_keygen(ctx, &pk);
-    if (res <= 0)
-    {
+    if (res <= 0) {
         PRINT("keygen failed (%d)\n", res);
         goto done;
     }
@@ -81,8 +77,7 @@ done:
 
 }
 
-int get_pkey_by_ec(EVP_PKEY *pk)
-{
+int get_pkey_by_ec(EVP_PKEY *pk) {
     int res = -1;
     EVP_PKEY_CTX *ctx;
 
@@ -90,23 +85,20 @@ int get_pkey_by_ec(EVP_PKEY *pk)
     if (ctx == NULL)
         return res;
     res = EVP_PKEY_keygen_init(ctx);
-    if (res <= 0)
-    {
+    if (res <= 0) {
         PRINT("EC_generate_key failed (%d)\n", res);
         goto done;
     }
 
     res = EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, NID_secp384r1);
-    if (res <= 0)
-    {
+    if (res <= 0) {
         PRINT("EC_generate_key failed (%d)\n", res);
         goto done;
     }
 
     /* Generate key */
     res = EVP_PKEY_keygen(ctx, &pk);
-    if (res <= 0)
-    {
+    if (res <= 0) {
         PRINT("EC_generate_key failed (%d)\n", res);
         goto done;
     }
@@ -121,13 +113,9 @@ done:
 
 // actually is generating RSA pair
 // hardare independant
-sgx_status_t generate_key_pair(
-    int type,
-    uint8_t** public_key,
-    size_t* public_key_size,
-    uint8_t** private_key,
-    size_t* private_key_size)
-{
+sgx_status_t generate_key_pair(int type,
+                               uint8_t** public_key, size_t* public_key_size,
+                               uint8_t** private_key, size_t* private_key_size) {
     sgx_status_t result = SGX_ERROR_UNEXPECTED;
     uint8_t* local_public_key = nullptr;
     uint8_t* local_private_key = nullptr;
@@ -136,20 +124,17 @@ sgx_status_t generate_key_pair(
     BIO* bio = nullptr;
 
     pkey = EVP_PKEY_new();
-    if (!pkey)
-    {
+    if (!pkey) {
         PRINT("EVP_PKEY_new failed\n");
         result = SGX_ERROR_UNEXPECTED;
         goto done;
     }
 
-    if (type != RSA_TYPE && type != EC_TYPE)
-    {
+    if (type != RSA_TYPE && type != EC_TYPE) {
         type = RSA_TYPE; // by default, we use RSA_TYPE
     }
 
-    switch(type)
-    {
+    switch(type) {
         case RSA_TYPE:
             res = get_pkey_by_rsa(pkey);
             break;
@@ -158,8 +143,7 @@ sgx_status_t generate_key_pair(
             break;
     }
 
-    if (res <= 0)
-    {
+    if (res <= 0) {
         PRINT("get_pkey failed (%d)\n", res);
         result = SGX_ERROR_UNEXPECTED;
         goto done;
@@ -167,8 +151,7 @@ sgx_status_t generate_key_pair(
 
     // Allocate memory
     local_public_key = (uint8_t*)malloc(RSA_3072_PUBLIC_KEY_SIZE);
-    if (!local_public_key)
-    {
+    if (!local_public_key) {
         PRINT("out-of-memory:calloc(local_public_key failed\n");
         result = SGX_ERROR_OUT_OF_EPC;
         goto done;
@@ -176,8 +159,7 @@ sgx_status_t generate_key_pair(
     memset(local_public_key, 0x00, RSA_3072_PUBLIC_KEY_SIZE);
 
     local_private_key = (uint8_t*)malloc(RSA_3072_PRIVATE_KEY_SIZE);
-    if (!local_private_key)
-    {
+    if (!local_private_key) {
         PRINT("out-of-memory: calloc(local_private_key) failed\n");
         result = SGX_ERROR_OUT_OF_EPC;
         goto done;
@@ -187,22 +169,19 @@ sgx_status_t generate_key_pair(
     // Write out the public/private key in PEM format for exchange with
     // other enclaves.
     bio = BIO_new(BIO_s_mem());
-    if (!bio)
-    {
+    if (!bio) {
         PRINT("BIO_new for local_public_key failed\n");
         goto done;
     }
 
     res = PEM_write_bio_PUBKEY(bio, pkey);
-    if (!res)
-    {
+    if (!res) {
         PRINT("PEM_write_bio_PUBKEY failed (%d)\n", res);
         goto done;
     }
 
     res = BIO_read(bio, local_public_key, RSA_3072_PUBLIC_KEY_SIZE);
-    if (!res)
-    {
+    if (!res) {
         PRINT("BIO_read public key failed (%d)\n", res);
         goto done;
     }
@@ -210,23 +189,19 @@ sgx_status_t generate_key_pair(
     bio = nullptr;
 
     bio = BIO_new(BIO_s_mem());
-    if (!bio)
-    {
+    if (!bio) {
         PRINT("BIO_new for local_public_key failed\n");
         goto done;
     }
 
-    res = PEM_write_bio_PrivateKey(
-        bio, pkey, nullptr, nullptr, 0, nullptr, nullptr);
-    if (!res)
-    {
+    res = PEM_write_bio_PrivateKey(bio, pkey, nullptr, nullptr, 0, nullptr, nullptr);
+    if (!res) {
         PRINT("PEM_write_bio_PrivateKey failed (%d)\n", res);
         goto done;
     }
 
     res = BIO_read(bio, local_private_key, RSA_3072_PRIVATE_KEY_SIZE);
-    if (!res)
-    {
+    if (!res) {
         PRINT("BIO_read private key failed (%d)\n", res);
         goto done;
     }
@@ -240,7 +215,7 @@ sgx_status_t generate_key_pair(
     *public_key_size = strlen(reinterpret_cast<const char *>(local_public_key)) + 1;
     *private_key_size = strlen(reinterpret_cast<const char *>(local_private_key)) + 1;
 
-    PRINT("public_key_size %d, private_key_size %d\n", *public_key_size, *private_key_size);
+    // PRINT("public_key_size %d, private_key_size %d\n", *public_key_size, *private_key_size);
     result = SGX_SUCCESS;
 
 done:
@@ -248,8 +223,7 @@ done:
         BIO_free(bio);
     if (pkey)
         EVP_PKEY_free(pkey); // When this is called, rsa is also freed
-    if (result != SGX_SUCCESS)
-    {
+    if (result != SGX_SUCCESS) {
         if (local_public_key)
             free(local_public_key);
         if (local_private_key)

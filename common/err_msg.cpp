@@ -40,8 +40,7 @@
  */
 
 
-std::map<quote3_error_t, std::string> ql_error_map =
-{
+std::map<quote3_error_t, std::string> ql_error_map = {
     { SGX_QL_SUCCESS, "quoting service success" },
     { SGX_QL_ERROR_UNEXPECTED, "unexpected error in quoting service"},
     { SGX_QL_OUT_OF_EPC, "not enough EPC to load the quoting enclave"},
@@ -73,8 +72,7 @@ std::string strUnspecified =
     "invalid input";
 
 
-std::map<sgx_ql_qv_result_t, qv_result_info> qve_error_map =
-{
+std::map<sgx_ql_qv_result_t, qv_result_info> qve_error_map = {
     { SGX_QL_QV_RESULT_OK, std::make_pair(L_OK, strOK)},
     { SGX_QL_QV_RESULT_CONFIG_NEEDED, 
         std::make_pair(L_WARNING, strCfgNeeded) },
@@ -91,19 +89,14 @@ std::map<sgx_ql_qv_result_t, qv_result_info> qve_error_map =
 };
 
 
-void p_sgx_tls_qv_err_msg(sgx_ql_qv_result_t error_code)
-{
-    if (qve_error_map.find(error_code) != qve_error_map.end())
-    {
-        switch (qve_error_map[error_code].first)
-        {
+void p_sgx_tls_qv_err_msg(sgx_ql_qv_result_t error_code) {
+    if (qve_error_map.find(error_code) != qve_error_map.end()) {
+        switch (qve_error_map[error_code].first) {
             case L_WARNING:
-              PRINT("WARNING: 0x%x - %s\n", error_code,
-                      qve_error_map[error_code].second.c_str());
+              PRINT("WARNING: 0x%x - %s\n", error_code, qve_error_map[error_code].second.c_str());
               break;
             case L_FATAL:
-              PRINT("FATAL: 0x%x - %s\n", error_code,
-                      qve_error_map[error_code].second.c_str());
+              PRINT("FATAL: 0x%x - %s\n", error_code, qve_error_map[error_code].second.c_str());
               break;
             default: // default is ok
               // but you need to check the collateral_expiration_status
@@ -111,21 +104,15 @@ void p_sgx_tls_qv_err_msg(sgx_ql_qv_result_t error_code)
               PRINT("unknown error level\n");
               break;
         }
-    }
-    else
-    {
+    } else {
         PRINT("UNKNOWN error type(0x%x) and info, please check! \n", error_code);
     }
 }
 
-void p_sgx_tls_qe_err_msg(quote3_error_t error_code)
-{
-    if (ql_error_map.find(error_code) != ql_error_map.end())
-    {
+void p_sgx_tls_qe_err_msg(quote3_error_t error_code) {
+    if (ql_error_map.find(error_code) != ql_error_map.end()) {
         PRINT("%s", ql_error_map[error_code].c_str());
-    }
-    else
-    {
+    } else {
         PRINT("please check the error 0x%x\n", error_code);
     }
 }

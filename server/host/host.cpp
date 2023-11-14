@@ -137,18 +137,14 @@ void print_error_message(sgx_status_t ret)
         printf("Error code is 0x%X. Please refer to the \"Intel SGX SDK Developer Reference\" for more details.\n", ret);
 }
 
-sgx_status_t initialize_enclave(const char *enclave_path)
-{
+sgx_status_t initialize_enclave(const char *enclave_path) {
     sgx_status_t ret = SGX_ERROR_UNEXPECTED;
 
     // the 1st parameter should be SERVER_ENCLAVE_FILENAME
-    ret = sgx_create_enclave(enclave_path, SGX_DEBUG_FLAG, NULL, NULL,
-                &server_global_eid, NULL);
+    ret = sgx_create_enclave(enclave_path, SGX_DEBUG_FLAG, NULL, NULL, &server_global_eid, NULL);
+    printf("- [Host] Enclave library: %s\n", enclave_path);
 
-    printf("Server Enc: Enclave library %s\n", enclave_path);
-
-    if (ret != SGX_SUCCESS)
-    {
+    if (ret != SGX_SUCCESS){
         print_error_message(ret);
         return ret;
     }
@@ -161,77 +157,61 @@ void terminate_enclave()
     printf("Host: Enclave successfully terminated.\n");
 }
 
-int main(int argc, const char* argv[])
-{
+int main(int argc, const char* argv[]) {
     sgx_status_t result = SGX_SUCCESS;
     int ret = 1;
     char* server_port = NULL;
     int keep_server_up = 0; // should be bool type, 0 false, 1 true
 
     /* Check argument count */
-    if (argc == 4)
-    {
-        if (strcmp(argv[3], LOOP_OPTION) != 0)
-        {
-            printf(
-                "Usage: %s TLS_SERVER_ENCLAVE_PATH -port:<port> [%s]\n",
-                argv[0],
-                LOOP_OPTION);
+    if (argc == 4) {
+        if (strcmp(argv[3], LOOP_OPTION) != 0) {
+            printf("Usage: %s TLS_SERVER_ENCLAVE_PATH -port:<port> [%s]\n", argv[0], LOOP_OPTION);
             return 1;
-        }
-        else
-        {
+        } else {
             keep_server_up = 1;
         }
-    }
-    else if (argc != 3)
-    {
-        printf(
-            "Usage: %s TLS_SERVER_ENCLAVE_PATH -port:<port> [%s]\n",
-            argv[0],
-            LOOP_OPTION);
+    } else if (argc != 3) {
+        printf("Usage: %s TLS_SERVER_ENCLAVE_PATH -port:<port> [%s]\n", argv[0], LOOP_OPTION);
         return 1;
     }
 
+    printf("\n[Starting TLS server]\n");
     // read port parameter
     char* option = (char*)"-port:";
     size_t param_len = 0;
     param_len = strlen(option);
-    if (strncmp(argv[2], option, param_len) == 0)
-    {
+    if (strncmp(argv[2], option, param_len) == 0) {
         server_port = (char*)(argv[2] + param_len);
-    }
-    else
-    {
+    } else {
         fprintf(stderr, "Unknown option %s\n", argv[2]);
-        printf(
-                "Usage: %s TLS_SERVER_ENCLAVE_PATH -port:<port> [%s]\n",
-                argv[0],
-                LOOP_OPTION);
+        printf("Usage: %s TLS_SERVER_ENCLAVE_PATH -port:<port> [%s]\n", argv[0], LOOP_OPTION);
         return 1;
     }
-    printf("server port = %s\n", server_port);
+    printf("- [Host] Server Port: %s\n", server_port);
 
-    printf("Host: Creating an tls server enclave\n");
+    printf("\n[Creating TLS server enclave]\n");
     result = initialize_enclave(argv[1]);
-    if (result != SGX_SUCCESS)
-    {
+    if (result != SGX_SUCCESS) {
+        printf("- [Host] Status: Failed\n");
         goto exit;
+    } else {
+        printf("- [Host] Status: Success\n");
     }
 
-    printf("Host: calling setup_tls_server\n");
+    printf("\n[Launching TLS server enclave]\n");
     result = set_up_tls_server(server_global_eid, &ret, server_port, keep_server_up);
-    if (result != SGX_SUCCESS || ret != 0)
-    {
+    if (result != SGX_SUCCESS || ret != 0) {
         printf("Host: setup_tls_server failed\n");
         goto exit;
     }
 
 exit:
 
-    printf("Host: Terminating enclaves\n");
+    // printf("Host: Terminating enclaves\n");
+    printf("\n[Terminating enclaves]\n");
     terminate_enclave();
 
-    printf("Host:  %s \n", (ret == 0) ? "succeeded" : "failed");
+    printf("- [Host] %s \n", (ret == 0) ? "succeeded" : "failed");
     return ret;
 }
